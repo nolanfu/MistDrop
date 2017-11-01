@@ -1,13 +1,17 @@
 #!/usr/bin/python
 
 import sys
-import digitalocean
 import locale
+import time
+import digitalocean
 
 class MistDropManager:
   def __init__(self, prefix):
     self.prefix = prefix
-    self.region = "sfo2"
+    self.default_region = "sfo2"
+    self.default_size = "512mb"
+    self.long_timeout = 60
+    self.retry_interval = 5
     self.read_access_token()
     self.manager = digitalocean.Manager(token=self.token)
     self.sizes = None
@@ -75,16 +79,12 @@ class MistDropManager:
   def snapshot_price(self, snapshot):
     return snapshot.size_gigabytes * 0.05
 
-  def up(self):
-    snapshots = self.snapshots()
-    if len(snapshots) == 0:
-      print("Error on up: no snapshots found for mistdrop '" + self.prefix + "'.")
-      return False
-    if len(snapshots) > 1:
-      print("Warning: more than one snapshot found for mistdrop '" + self.prefix + "'. Using most recently created snapshot.")
-      snapshots.sort(key = lambda s: s.created_at, reverse=True)
-    snapshot = snapshots[0]
+  def raw_print(self, msg):
+    sys.stdout.write(msg)
+    sys.stdout.flush()
 
+  def up(self):
+    print("Looking up droplets...")
     droplets = self.droplets()
     if len(droplets) > 1:
       print("Error on up: more than one existing droplet for mistdrop '" + self.prefix + "'.")
@@ -93,7 +93,20 @@ class MistDropManager:
     droplet = None
     if len(droplets) == 1:
       droplet = droplets[0]
-    else:
+      if droplet.status == "active":
+        print(droplet.name + " is already up and running.")
+        return True
+
+    if not droplet:
+      print("Looking up snapshots...")
+      snapshots = self.snapshots()
+      if len(snapshots) == 0:
+        print("Error on up: no snapshots found for mistdrop '" + self.prefix + "'.")
+        return False
+      if len(snapshots) > 1:
+        print("Warning: more than one snapshot found for mistdrop '" + self.prefix + "'. Using most recently created snapshot.")
+        snapshots.sort(key = lambda s: s.created_at, reverse=True)
+      snapshot = snapshots[0]
       droplet = self.create_droplet(snapshot)
 
     if not droplet:
@@ -104,12 +117,8 @@ class MistDropManager:
       print("Error on up: droplet " + droplet.name + " for mistdrop '" + self.prefix + "' is locked.")
       return False
 
-    if droplet.status == "active":
-      print(droplet.name + " is already up and running.")
-      return True
-      
     if droplet.status == "off":
-      droplet = self.power_up_droplet(droplet)
+      droplet = self.power_on_droplet(droplet)
 
     if not droplet:
       print("Error on up: failed fo find/create droplet for mistdrop '" + self.prefix + "'.")
@@ -119,6 +128,7 @@ class MistDropManager:
     return True
 
   def down(self):
+    print("Looking up droplets...")
     droplets = self.droplets()
     if len(droplets) == 0:
       print("No droplets exist for mistdrop '" + self.prefix + "'. Already down.")
@@ -137,9 +147,10 @@ class MistDropManager:
       droplet = self.tiered_shutdown(droplet)
 
     if not droplet or droplet.status != "off":
-      print("Error on down: failed fo shutdown droplet for mistdrop '" + self.prefix + "'.")
+      print("Error on down: failed to shutdown droplet for mistdrop '" + self.prefix + "'.")
       return False
 
+    print("Looking up snapshots...")
     old_snapshots = self.snapshots()
     if len(old_snapshots) > 1:
       print("Warning: more than one snapshot found for mistdrop '" + self.prefix + "'. This shouldn't normally happen.")
@@ -168,46 +179,79 @@ class MistDropManager:
     print(self.prefix + " down complete.")
     return True
 
-
-  def create_droplet(self, droplet):
+  def create_droplet(self, snapshot, current_step = 1, max_steps = 1):
     """Returns a newly created Droplet. Waits until droplet is unlocked before returning. Return None on error.
     """
-    pass
+    name = self.prefix
+    self.raw_print(str(current_step) + "/" + str(max_steps) + ": creating droplet " + name + "...")
+    keys = self.manager.get_all_sshkeys()
+    droplet = digitalocean.Droplet(token=self.token,
+      name=name,
+      region=self.default_region,
+      size_slug=self.default_size,
+      image=snapshot.id,
+      ssh_keys=keys,
+      backups=False
+    )
+    droplet.create()
+    return self.wait_for_droplet_state(droplet, lambda d: (d.status == "active" and not d.locked))
 
-  def destroy_droplet(self, droplet):
+  def destroy_droplet(self, droplet, current_step = 1, max_steps = 1):
     """Destroy given droplet, wait until droplet is gone, return True. Return False on error.
     """
-    pass
+    return None
 
-  def create_snapshot(self, snapshot):
-    """Create snapshot, wait until droplet is unlocked, return Snapshot object. Return None on error.
+  def create_snapshot(self, droplet, current_step = 1, max_steps = 1):
+    """Create snapshot, wait until action is complete, return Snapshot object. Return None on error.
     """
-    pass
+    # Save action ID, wait until action is complete.
+    return None
 
-  def destroy_snapshot(self, snapshot):
+  def destroy_snapshot(self, snapshot, current_step = 1, max_steps = 1):
     """Destroy given snapshot and return.
     """
-    pass
+    # Save action ID, wait until action is complete.
 
-  def power_up_droplet(self, droplet):
-    """Sends DA power up command, waits until droplet is active and unlocked, and returns a new Droplet object.
+  def power_on_droplet(self, droplet, current_step = 1, max_steps = 1):
+    """Sends DA power on command, waits until droplet is active and unlocked, and returns a new Droplet object. Return None on error.
     """
-    pass
+    self.raw_print(str(current_step) + "/" + str(max_steps) + ": powering on droplet " + droplet.name + "...")
+    droplet.power_on()
+    return self.wait_for_droplet_state(droplet, lambda d: (d.status == "active" and not d.locked))
 
-  def tiered_shutdown(self, droplet):
+  def tiered_shutdown(self, droplet, current_step = 1, max_steps = 1):
     """Tries gentle shutdown of droplet, followed by harsh shutdown if that fails. Returns new Droplet object on success, None on error.
     """
-    pass
+    self.raw_print(str(current_step) + "/" + str(max_steps) + ": shutting down droplet " + droplet.name + "...")
+    result = self.gentle_shutdown(droplet)
+    if not result:
+      result = self.harsh_shutdown(droplet)
+    return result
 
   def gentle_shutdown(self, droplet):
     """Gentle shutdown of droplet. Wait until droplet is unlocked. Return new Droplet on success, None on failure.
     """
-    pass
+    droplet.shutdown()
+    return self.wait_for_droplet_state(droplet, lambda d: (d.status == "off" and not d.locked))
 
   def harsh_shutdown(self, droplet):
     """Harsh shutdown of droplet. Wait until droplet is unlocked. Return new Droplet on success, None on failure.
     """
-    pass
+    droplet.power_off()
+    return self.wait_for_droplet_state(droplet, lambda d: (d.status == "off" and not d.locked))
+
+  def wait_for_droplet_state(self, droplet, condition):
+    start_time = time.time()
+    return_value = self.manager.get_droplet(droplet.id)
+    while time.time() - start_time < self.long_timeout and not condition(return_value):
+      time.sleep(self.retry_interval)
+      self.raw_print(".")
+      return_value = self.manager.get_droplet(droplet.id)
+    if not condition(return_value):
+      print("Failed.")
+      return None
+    print("Done.")
+    return return_value
 
 def usage():
   print("Usage: dropman <command> [mistdrop-name] ")
@@ -231,6 +275,9 @@ def main():
   man = MistDropManager(sys.argv[-1])
   if sys.argv[1] == "status":
     man.get_status()
+    return
+  if sys.argv[1] == "up":
+    man.up()
     return
 
   print("Unrecognized command: " + sys.argv[1])
