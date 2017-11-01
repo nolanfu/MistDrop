@@ -2,6 +2,7 @@
 
 import sys
 import digitalocean
+import locale
 
 class MistDropManager:
   def __init__(self, prefix):
@@ -9,6 +10,7 @@ class MistDropManager:
     self.region = "sfo2"
     self.read_access_token()
     self.manager = digitalocean.Manager(token=self.token)
+    self.sizes = None
 
   def read_access_token(self):
     try:
@@ -25,6 +27,15 @@ class MistDropManager:
   def snapshots(self):
     return [s for s in self.manager.get_droplet_snapshots() if s.name.find(self.prefix) == 0]
 
+  def init_sizes(self):
+    self.sizes = {}
+    for size in self.manager.get_all_sizes():
+      self.sizes[size.slug] = size
+
+  def confirm_sizes(self):
+    if not self.sizes:
+      self.init_sizes()
+
   def get_status(self):
     self.report_status(self.droplets(), self.snapshots())
 
@@ -32,15 +43,28 @@ class MistDropManager:
     self.report_status(self.manager.get_all_droplets(), self.manager.get_droplet_snapshots())
 
   def report_status(self, droplets, snapshots):
-    print("Loading list of droplets...")
+    print("Droplets:")
+    monthly_total = 0.0
     for droplet in droplets:
-      print(droplet.name + ", " + droplet.size_slug + " (lock state " + str(droplet.locked) + ", status " + droplet.status + ")")
+      monthly_total += self.droplet_price(droplet)
+      print("  " + droplet.name + ", " + locale.currency(self.droplet_price(droplet)) + " - " + droplet.size_slug + " (lock state " + str(droplet.locked) + ", status " + droplet.status + ")")
 
-    print ("")
-    print("Loading list of snapshots...")
+    print("")
+    print("Snapshots:")
     for snapshot in snapshots:
-      if snapshot.name.find(self.prefix) == 0:
-        print(snapshot.name)
+      monthly_total += self.snapshot_price(snapshot)
+      print("  " + snapshot.name + ", " + locale.currency(self.snapshot_price(snapshot)) + " - " + str(snapshot.size_gigabytes) + "gb")
+
+    print("")
+    print("Monthly total: " + locale.currency(monthly_total))
+
+  def droplet_price(self, droplet):
+    return droplet.size[u'price_monthly']
+    #self.confirm_sizes()
+    #return self.sizes[droplet.size_slug_name].price_monthly
+
+  def snapshot_price(self, snapshot):
+    return snapshot.size_gigabytes * 0.05
 
   def up(self):
     snapshots = self.snapshots()
@@ -185,6 +209,7 @@ def usage():
   print("An .access_token file is expected in the working directory containing your DigitalOcean API token.")
 
 def main():
+  locale.setlocale(locale.LC_ALL, '')
   if not (len(sys.argv) == 3 or (len(sys.argv) == 2 and sys.argv[1] == "status")):
     usage()
     return
