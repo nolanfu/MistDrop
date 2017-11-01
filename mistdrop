@@ -304,10 +304,19 @@ class MistDropManager:
 
 
 def usage():
-  print("Usage: dropman <command> [mistdrop-name] ")
+  print("Usage:")
+  print("  mistdrop status")
+  print("  mistdrop [status|up|down] [mistdrop-name]")
   print("")
   print("Available commands:")
-  print("  status - lists current droplets and snapshots for the given mistdrop-name")
+  print("  status - lists current droplets and snapshots. Restricts to those")
+  print("           matching the given mistdrop-name if one is provided.")
+  print("  up     - create droplet using the most recent snapshot matching")
+  print("           mistdrop-name. If a matching droplet already exists, make")
+  print("           sure it's powered up.")
+  print("  down   - power down droplet matching mistdrop-name, create a new")
+  print("           snapshot from it, delete previous snapshots, and then")
+  print("           destroy droplet.")
   print("")
   print("An .access_token file is expected in the working directory containing your DigitalOcean API token.")
 
