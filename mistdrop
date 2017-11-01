@@ -1,0 +1,60 @@
+#!/usr/bin/python
+
+import sys
+import digitalocean
+
+class MistDropManager:
+  def __init__(self, prefix):
+    self.prefix = prefix
+    self.region = "sfo2"
+    self.token = ""
+    self.read_access_token()
+    self.manager = digitalocean.Manager(token=self.token)
+
+  def read_access_token(self):
+    with open(".access_token", "r") as f:
+      self.token = f.read().strip()
+      print("API token loaded from file.")
+
+  def droplets(self):
+    return [d for d in self.manager.get_all_droplets() if d.name.find(self.prefix) == 0]
+
+  def snapshots(self):
+    return [s for s in self.manager.get_droplet_snapshots() if s.name.find(self.prefix) == 0]
+
+  def get_status(self):
+    print("Loading list of droplets...")
+    for droplet in self.droplets():
+      print(droplet.name + ", " + droplet.size_slug + " (lock state " + str(droplet.locked) + ", status " + droplet.status + ")")
+      #for action in droplet.get_actions():
+      #  print(action)
+      #print("")
+
+    print ("")
+    print("Loading list of snapshots...")
+    for snapshot in self.snapshots():
+      if snapshot.name.find(self.prefix) == 0:
+        print(snapshot.name)
+
+
+def usage():
+  print("Usage: dropman [mistdrop-name] [command]")
+  print("")
+  print("Available commands:")
+  print("  status - lists current droplets and snapshots for the given mistdrop-name")
+  print("")
+  print("An .access_token file is expected in the working directory containing your DigitalOcean API token.")
+
+def main():
+  if len(sys.argv) != 3:
+    usage()
+    return
+  man = MistDropManager(sys.argv[1])
+  if (sys.argv[2] != "status"):
+    print("Unrecognized command: " + sys.argv[2])
+    usage()
+    return
+  man.get_status()
+
+if __name__ == "__main__":
+  main()
