@@ -47,7 +47,13 @@ class MistDropManager:
     monthly_total = 0.0
     for droplet in droplets:
       monthly_total += self.droplet_price(droplet)
-      print("  " + droplet.name + ", " + locale.currency(self.droplet_price(droplet)) + " - " + droplet.size_slug + " (lock state " + str(droplet.locked) + ", status " + droplet.status + ")")
+      out = "  " + droplet.name + ", " + locale.currency(self.droplet_price(droplet)) + " - " + droplet.size_slug + " (" + droplet.status
+      if droplet.locked:
+        out += ", locked"
+      if droplet.next_backup_window:
+        out += ", backups"
+      out += ")"
+      print(out)
 
     print("")
     print("Snapshots:")
@@ -59,7 +65,10 @@ class MistDropManager:
     print("Monthly total: " + locale.currency(monthly_total))
 
   def droplet_price(self, droplet):
-    return droplet.size[u'price_monthly']
+    price = droplet.size[u'price_monthly']
+    if droplet.next_backup_window:
+      price *= 1.2
+    return price
     #self.confirm_sizes()
     #return self.sizes[droplet.size_slug_name].price_monthly
 
